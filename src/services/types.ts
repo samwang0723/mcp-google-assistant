@@ -18,11 +18,6 @@ export interface EmailDetailsOptions {
 export interface EmailListItem {
   id: string;
   threadId: string;
-  labelIds?: string[];
-  snippet?: string;
-  historyId?: string;
-  internalDate?: string;
-  sizeEstimate?: number;
 }
 
 export interface EmailListResponse {
@@ -36,30 +31,11 @@ export interface EmailHeader {
   value: string;
 }
 
-export interface EmailPart {
-  partId: string;
-  mimeType: string;
-  filename?: string;
-  headers?: EmailHeader[];
-  body?: {
-    attachmentId?: string;
-    size?: number;
-    data?: string;
-  };
-  parts?: EmailPart[];
-}
-
 export interface EmailDetails {
   id: string;
   threadId: string;
-  labelIds: string[];
   snippet: string;
-  historyId: string;
   internalDate: string;
   textBody: string; // Extracted and potentially truncated text content
-  wordCount: number; // Original word count before truncation
-  isTruncated: boolean; // Whether text was truncated
   headers: EmailHeader[]; // Filtered headers based on includeHeaders option
-  sizeEstimate: number;
-  raw?: string;
 }

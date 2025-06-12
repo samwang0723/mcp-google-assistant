@@ -142,11 +142,6 @@ export class GmailService {
         (message: gmail_v1.Schema$Message) => ({
           id: message.id!,
           threadId: message.threadId!,
-          ...(message.labelIds && { labelIds: message.labelIds }),
-          ...(message.snippet && { snippet: message.snippet }),
-          ...(message.historyId && { historyId: message.historyId }),
-          ...(message.internalDate && { internalDate: message.internalDate }),
-          ...(message.sizeEstimate && { sizeEstimate: message.sizeEstimate }),
         })
       );
 
@@ -196,13 +191,11 @@ export class GmailService {
 
       // Extract text content
       const fullTextBody = this.extractTextContent(message);
-      const { truncatedText, wordCount, isTruncated } =
+      const { truncatedText } =
         maxWords > 0
           ? this.truncateText(fullTextBody, maxWords)
           : {
               truncatedText: fullTextBody,
-              wordCount: fullTextBody.split(/\s+/).length,
-              isTruncated: false,
             };
 
       // Filter headers to only include requested ones
@@ -221,16 +214,10 @@ export class GmailService {
       const emailDetails: EmailDetails = {
         id: message.id!,
         threadId: message.threadId!,
-        labelIds: message.labelIds || [],
         snippet: message.snippet || '',
-        historyId: message.historyId || '',
         internalDate: message.internalDate || '',
         textBody: truncatedText,
-        wordCount,
-        isTruncated,
         headers: filteredHeaders,
-        sizeEstimate: message.sizeEstimate || 0,
-        ...(message.raw && { raw: message.raw }),
       };
 
       return emailDetails;
@@ -284,23 +271,6 @@ export class GmailService {
   ): Promise<EmailListResponse> {
     return this.getEmailList({
       query,
-      maxResults,
-      labelIds: inboxOnly ? ['INBOX'] : undefined,
-    });
-  }
-
-  /**
-   * Get unread emails from inbox only
-   * @param maxResults - Maximum number of results (default: 10, max: 500)
-   * @param inboxOnly - Whether to get unread emails only from inbox (default: true)
-   * @returns Promise containing unread emails
-   */
-  async getUnreadEmails(
-    maxResults: number = 10,
-    inboxOnly: boolean = true
-  ): Promise<EmailListResponse> {
-    return this.getEmailList({
-      query: 'is:unread',
       maxResults,
       labelIds: inboxOnly ? ['INBOX'] : undefined,
     });

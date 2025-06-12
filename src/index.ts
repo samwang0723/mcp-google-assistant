@@ -216,44 +216,6 @@ class McpServerApp {
       }
     );
 
-    // Register Gmail get unread emails tool
-    server.tool(
-      'gmail-get-unread',
-      'Get unread emails from Gmail',
-      {
-        maxResults: z
-          .number()
-          .min(1)
-          .max(500)
-          .optional()
-          .describe(
-            'Maximum number of unread emails to return (default: 10, max: 500)'
-          ),
-      },
-      async ({ maxResults }) => {
-        try {
-          const gmailService = createGmailServiceFromSession(sessionId);
-          const unreadEmails = await gmailService.getUnreadEmails(maxResults);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify(unreadEmails, null, 2),
-              } as TextContent,
-            ],
-          };
-        } catch (error) {
-          const errorMessage =
-            error instanceof GmailServiceError
-              ? `Gmail API Error [${error.code}]: ${error.message}`
-              : error instanceof Error
-                ? error.message
-                : String(error);
-          throw new Error(`Error fetching unread emails: ${errorMessage}`);
-        }
-      }
-    );
-
     return server;
   }
 
@@ -388,7 +350,6 @@ class McpServerApp {
       console.log(
         '  - gmail-search-emails: Search emails using Gmail query syntax'
       );
-      console.log('  - gmail-get-unread: Get unread emails');
       console.log('');
       console.log(
         'Authentication: Include "Authorization: Bearer <access_token>" header'
