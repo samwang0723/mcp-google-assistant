@@ -2,14 +2,11 @@ node_modules
 npm-debug.log
 dist
 .git
-.gitignore
 README.md
-.env.example
 .nyc_output
 coverage
 .nyc_output
 .coverage
-.eslintrc.js
 jest.config.js
 test-mcp-server.sh
 quick-test.sh

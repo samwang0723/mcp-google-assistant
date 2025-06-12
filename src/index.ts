@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// Register TypeScript path mappings for runtime resolution
+import './register-paths';
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
@@ -11,39 +14,242 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
 import config from '@config/index';
+import GmailService, { GmailServiceError } from '@services/gmail';
 
 // Load environment variables
 dotenv.config();
 
+// Global map to store current request headers by session ID
+const sessionHeaders: {
+  [sessionId: string]: { [key: string]: string | string[] | undefined };
+} = {};
+
+// Helper function to extract Bearer token from headers
+function extractBearerToken(headers: {
+  [key: string]: string | string[] | undefined;
+}): string | null {
+  const authHeader = headers.authorization || headers.Authorization;
+
+  if (!authHeader) {
+    return null;
+  }
+
+  const authValue = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+
+  if (!authValue || !authValue.startsWith('Bearer ')) {
+    return null;
+  }
+
+  return authValue.substring(7); // Remove "Bearer " prefix
+}
+
+// Helper function to create Gmail service from current session headers
+function createGmailServiceFromSession(sessionId: string): GmailService {
+  const headers = sessionHeaders[sessionId];
+
+  if (!headers) {
+    throw new GmailServiceError(
+      'No authentication context found. Please ensure the request includes proper session headers.',
+      'NO_SESSION_CONTEXT'
+    );
+  }
+
+  const token = extractBearerToken(headers);
+
+  if (!token) {
+    throw new GmailServiceError(
+      'Missing or invalid Authorization header. Expected format: "Authorization: Bearer <access_token>"',
+      'MISSING_AUTHORIZATION'
+    );
+  }
+
+  return new GmailService(token);
+}
+
 class McpServerApp {
-  private createServer(): McpServer {
+  private createServer(sessionId: string): McpServer {
     const server = new McpServer({
       name: 'mcp-google-assistant-server',
       version: '1.0.0',
     });
 
-    // Register tool
+    // Register Gmail list emails tool
     server.tool(
-      'googleAssistant-function',
-      'Google Assistant function description',
+      'gmail-list-emails',
+      'Get a list of emails from Gmail with optional filtering',
       {
-        data: z.string().describe(`Parameter description`),
+        maxResults: z
+          .number()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe(
+            'Maximum number of emails to return (default: 10, max: 500)'
+          ),
+        pageToken: z
+          .string()
+          .optional()
+          .describe('Token for pagination to get next page of results'),
+        query: z
+          .string()
+          .optional()
+          .describe(
+            'Gmail search query (e.g., "from:example@gmail.com", "is:unread", "subject:important")'
+          ),
+        labelIds: z
+          .array(z.string())
+          .optional()
+          .describe('Array of label IDs to filter by'),
+        includeSpamTrash: z
+          .boolean()
+          .optional()
+          .describe(
+            'Whether to include spam and trash emails (default: false)'
+          ),
       },
-      async ({ data }) => {
+      async options => {
         try {
-          const result = `execution result: ${data}`;
+          const gmailService = createGmailServiceFromSession(sessionId);
+          const emailList = await gmailService.getEmailList(options);
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify(result, null, 2),
+                text: JSON.stringify(emailList, null, 2),
               } as TextContent,
             ],
           };
         } catch (error) {
           const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          throw new Error(`Error executing sample function: ${errorMessage}`);
+            error instanceof GmailServiceError
+              ? `Gmail API Error [${error.code}]: ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          throw new Error(`Error fetching email list: ${errorMessage}`);
+        }
+      }
+    );
+
+    // Register Gmail get email details tool
+    server.tool(
+      'gmail-get-email',
+      'Get detailed information about a specific email',
+      {
+        messageId: z
+          .string()
+          .min(1)
+          .describe('The ID of the email message to retrieve'),
+        format: z
+          .enum(['minimal', 'full', 'raw', 'metadata'])
+          .optional()
+          .describe('The format of the message (default: full)'),
+      },
+      async options => {
+        try {
+          const gmailService = createGmailServiceFromSession(sessionId);
+          const emailDetails = await gmailService.getEmailDetails(options);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(emailDetails, null, 2),
+              } as TextContent,
+            ],
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof GmailServiceError
+              ? `Gmail API Error [${error.code}]: ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          throw new Error(`Error fetching email details: ${errorMessage}`);
+        }
+      }
+    );
+
+    // Register Gmail search emails tool
+    server.tool(
+      'gmail-search-emails',
+      'Search emails using Gmail query syntax',
+      {
+        query: z
+          .string()
+          .min(1)
+          .describe(
+            'Gmail search query (e.g., "from:example@gmail.com", "is:unread", "subject:important")'
+          ),
+        maxResults: z
+          .number()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe(
+            'Maximum number of emails to return (default: 10, max: 500)'
+          ),
+      },
+      async ({ query, maxResults }) => {
+        try {
+          const gmailService = createGmailServiceFromSession(sessionId);
+          const searchResults = await gmailService.searchEmails(
+            query,
+            maxResults
+          );
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(searchResults, null, 2),
+              } as TextContent,
+            ],
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof GmailServiceError
+              ? `Gmail API Error [${error.code}]: ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          throw new Error(`Error searching emails: ${errorMessage}`);
+        }
+      }
+    );
+
+    // Register Gmail get unread emails tool
+    server.tool(
+      'gmail-get-unread',
+      'Get unread emails from Gmail',
+      {
+        maxResults: z
+          .number()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe(
+            'Maximum number of unread emails to return (default: 10, max: 500)'
+          ),
+      },
+      async ({ maxResults }) => {
+        try {
+          const gmailService = createGmailServiceFromSession(sessionId);
+          const unreadEmails = await gmailService.getUnreadEmails(maxResults);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(unreadEmails, null, 2),
+              } as TextContent,
+            ],
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof GmailServiceError
+              ? `Gmail API Error [${error.code}]: ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          throw new Error(`Error fetching unread emails: ${errorMessage}`);
         }
       }
     );
@@ -75,13 +281,19 @@ class McpServerApp {
         if (sessionId && transports[sessionId]) {
           // Reuse existing transport
           transport = transports[sessionId];
+          // Update session headers with current request headers
+          sessionHeaders[sessionId] = req.headers;
         } else if (!sessionId && isInitializeRequest(req.body)) {
           // New initialization request
+          const newSessionId = randomUUID();
+
           transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => randomUUID(),
+            sessionIdGenerator: () => newSessionId,
             onsessioninitialized: sessionId => {
               // Store the transport by session ID
               transports[sessionId] = transport;
+              // Store headers for this session
+              sessionHeaders[sessionId] = req.headers;
             },
           });
 
@@ -89,11 +301,12 @@ class McpServerApp {
           transport.onclose = () => {
             if (transport.sessionId) {
               delete transports[transport.sessionId];
+              delete sessionHeaders[transport.sessionId];
             }
           };
 
-          // Create new server instance
-          server = this.createServer();
+          // Create new server instance with session ID
+          server = this.createServer(newSessionId);
 
           // Connect to the MCP server
           await server.connect(transport);
@@ -138,6 +351,9 @@ class McpServerApp {
         return;
       }
 
+      // Update session headers
+      sessionHeaders[sessionId] = req.headers;
+
       const transport = transports[sessionId];
       await transport.handleRequest(req, res);
     };
@@ -158,6 +374,27 @@ class McpServerApp {
       );
       console.log(
         `MCP endpoint available at http://0.0.0.0:${config.server.port}/mcp`
+      );
+      console.log('');
+      console.log('📧 Gmail MCP Server ready!');
+      console.log('');
+      console.log('Available tools:');
+      console.log(
+        '  - gmail-list-emails: Get a list of emails with optional filtering'
+      );
+      console.log(
+        '  - gmail-get-email: Get detailed information about a specific email'
+      );
+      console.log(
+        '  - gmail-search-emails: Search emails using Gmail query syntax'
+      );
+      console.log('  - gmail-get-unread: Get unread emails');
+      console.log('');
+      console.log(
+        'Authentication: Include "Authorization: Bearer <access_token>" header'
+      );
+      console.log(
+        'Access token should be a valid Google OAuth2 access token with Gmail API scope'
       );
     });
   }
