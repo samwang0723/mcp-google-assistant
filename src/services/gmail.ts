@@ -7,7 +7,6 @@ import type {
   EmailListItem,
   EmailListResponse,
   EmailHeader,
-  EmailPart,
   EmailDetails,
 } from '@services/types';
 
@@ -23,6 +22,8 @@ export const EmailListOptionsSchema = z.object({
 export const EmailDetailsOptionsSchema = z.object({
   messageId: z.string().min(1),
   format: z.enum(['minimal', 'full', 'raw', 'metadata']).optional(),
+  maxWords: z.number().min(0).max(1000).optional(),
+  includeHeaders: z.array(z.string()).optional(),
 });
 
 export class GmailServiceError extends Error {
@@ -118,12 +119,15 @@ export class GmailService {
       // Validate input options
       EmailListOptionsSchema.parse(options);
 
+      // Default to INBOX only if no labelIds specified
+      const labelIds = options.labelIds ?? ['INBOX'];
+
       const response = await this.gmail.users.messages.list({
         userId: 'me',
         maxResults: options.maxResults ?? 10,
         pageToken: options.pageToken,
         q: options.query,
-        labelIds: options.labelIds,
+        labelIds: labelIds,
         includeSpamTrash: options.includeSpamTrash ?? false,
       });
 
@@ -157,14 +161,23 @@ export class GmailService {
   }
 
   /**
-   * Get detailed information about a specific email
-   * @param options - Options including message ID and format
+   * Get detailed information about a specific email with optimized payload
+   * @param options - Options including message ID, format, and optimization settings
    * @returns Promise containing detailed email information
    */
   async getEmailDetails(options: EmailDetailsOptions): Promise<EmailDetails> {
     try {
       // Validate input options
       EmailDetailsOptionsSchema.parse(options);
+
+      // Set defaults for optimization
+      const maxWords = options.maxWords ?? 300;
+      const includeHeaders = options.includeHeaders ?? [
+        'From',
+        'Subject',
+        'Date',
+        'To',
+      ];
 
       const response = await this.gmail.users.messages.get({
         userId: 'me',
@@ -181,7 +194,30 @@ export class GmailService {
 
       const message = response.data;
 
-      // Transform the response to our typed format
+      // Extract text content
+      const fullTextBody = this.extractTextContent(message);
+      const { truncatedText, wordCount, isTruncated } =
+        maxWords > 0
+          ? this.truncateText(fullTextBody, maxWords)
+          : {
+              truncatedText: fullTextBody,
+              wordCount: fullTextBody.split(/\s+/).length,
+              isTruncated: false,
+            };
+
+      // Filter headers to only include requested ones
+      const allHeaders = (message.payload?.headers || []).map(
+        (header: gmail_v1.Schema$MessagePartHeader) => ({
+          name: header.name || '',
+          value: header.value || '',
+        })
+      );
+
+      const filteredHeaders = allHeaders.filter(header =>
+        includeHeaders.includes(header.name)
+      );
+
+      // Build the optimized email details
       const emailDetails: EmailDetails = {
         id: message.id!,
         threadId: message.threadId!,
@@ -189,28 +225,10 @@ export class GmailService {
         snippet: message.snippet || '',
         historyId: message.historyId || '',
         internalDate: message.internalDate || '',
-        payload: {
-          partId: message.payload?.partId || '',
-          mimeType: message.payload?.mimeType || '',
-          filename: message.payload?.filename || '',
-          headers: (message.payload?.headers || []).map(
-            (header: gmail_v1.Schema$MessagePartHeader) => ({
-              name: header.name || '',
-              value: header.value || '',
-            })
-          ),
-          ...(message.payload?.body && {
-            body: {
-              size: message.payload.body.size || 0,
-              ...(message.payload.body.data && {
-                data: message.payload.body.data,
-              }),
-            },
-          }),
-          ...(message.payload?.parts && {
-            parts: this.transformParts(message.payload.parts),
-          }),
-        },
+        textBody: truncatedText,
+        wordCount,
+        isTruncated,
+        headers: filteredHeaders,
         sizeEstimate: message.sizeEstimate || 0,
         ...(message.raw && { raw: message.raw }),
       };
@@ -240,9 +258,10 @@ export class GmailService {
       const emailDetails = await this.getEmailDetails({
         messageId,
         format: 'metadata',
+        includeHeaders: [], // Get all headers for this method
       });
 
-      return emailDetails.payload.headers;
+      return emailDetails.headers;
     } catch (error: any) {
       throw new GmailServiceError(
         `Failed to fetch email headers: ${error.message}`,
@@ -252,30 +271,55 @@ export class GmailService {
   }
 
   /**
-   * Search emails with a specific query
+   * Search emails with a specific query (inbox only by default)
    * @param query - Gmail search query (e.g., "from:example@gmail.com", "is:unread")
    * @param maxResults - Maximum number of results (default: 10, max: 500)
+   * @param inboxOnly - Whether to search only in inbox (default: true)
    * @returns Promise containing search results
    */
   async searchEmails(
     query: string,
-    maxResults: number = 10
+    maxResults: number = 10,
+    inboxOnly: boolean = true
   ): Promise<EmailListResponse> {
     return this.getEmailList({
       query,
       maxResults,
+      labelIds: inboxOnly ? ['INBOX'] : undefined,
     });
   }
 
   /**
-   * Get unread emails
+   * Get unread emails from inbox only
    * @param maxResults - Maximum number of results (default: 10, max: 500)
+   * @param inboxOnly - Whether to get unread emails only from inbox (default: true)
    * @returns Promise containing unread emails
    */
-  async getUnreadEmails(maxResults: number = 10): Promise<EmailListResponse> {
+  async getUnreadEmails(
+    maxResults: number = 10,
+    inboxOnly: boolean = true
+  ): Promise<EmailListResponse> {
     return this.getEmailList({
       query: 'is:unread',
       maxResults,
+      labelIds: inboxOnly ? ['INBOX'] : undefined,
+    });
+  }
+
+  /**
+   * Get emails from main inbox only
+   * @param maxResults - Maximum number of results (default: 10, max: 500)
+   * @param pageToken - Token for pagination
+   * @returns Promise containing inbox emails
+   */
+  async getInboxEmails(
+    maxResults: number = 10,
+    pageToken?: string
+  ): Promise<EmailListResponse> {
+    return this.getEmailList({
+      maxResults,
+      pageToken,
+      labelIds: ['INBOX'],
     });
   }
 
@@ -330,35 +374,6 @@ export class GmailService {
   }
 
   /**
-   * Transform Gmail API parts to our typed format
-   */
-  private transformParts(parts: gmail_v1.Schema$MessagePart[]): EmailPart[] {
-    return parts.map(part => ({
-      partId: part.partId || '',
-      mimeType: part.mimeType || '',
-      ...(part.filename && { filename: part.filename }),
-      ...(part.headers && {
-        headers: part.headers.map(
-          (header: gmail_v1.Schema$MessagePartHeader) => ({
-            name: header.name || '',
-            value: header.value || '',
-          })
-        ),
-      }),
-      ...(part.body && {
-        body: {
-          ...(part.body.attachmentId && {
-            attachmentId: part.body.attachmentId,
-          }),
-          ...(part.body.size && { size: part.body.size }),
-          ...(part.body.data && { data: part.body.data }),
-        },
-      }),
-      ...(part.parts && { parts: this.transformParts(part.parts) }),
-    }));
-  }
-
-  /**
    * Helper method to decode base64url encoded email content
    * @param data - Base64url encoded string
    * @returns Decoded string
@@ -381,16 +396,25 @@ export class GmailService {
   }
 
   /**
-   * Extract email body text from email details
-   * @param emailDetails - Email details object
-   * @returns Plain text body content
+   * Extract text content directly from Gmail message response (optimized version)
+   * @param message - Gmail message response
+   * @returns Plain text content
    */
-  static extractEmailBody(emailDetails: EmailDetails): string {
-    const findTextPart = (parts: EmailPart[]): string | null => {
+  private extractTextContent(message: gmail_v1.Schema$Message): string {
+    const findTextPart = (
+      parts: gmail_v1.Schema$MessagePart[]
+    ): string | null => {
       for (const part of parts) {
+        // Only process text/plain parts, ignore other mime types
         if (part.mimeType === 'text/plain' && part.body?.data) {
-          return this.decodeBase64Url(part.body.data);
+          try {
+            return GmailService.decodeBase64Url(part.body.data);
+          } catch (error) {
+            console.error('Failed to decode email part:', error);
+            continue;
+          }
         }
+        // Recursively check nested parts
         if (part.parts) {
           const textFromSubParts = findTextPart(part.parts);
           if (textFromSubParts) {
@@ -401,24 +425,73 @@ export class GmailService {
       return null;
     };
 
-    // First check if the main payload has text data
+    // Check if the main payload has text data
     if (
-      emailDetails.payload.mimeType === 'text/plain' &&
-      emailDetails.payload.body?.data
+      message.payload?.mimeType === 'text/plain' &&
+      message.payload.body?.data
     ) {
-      return this.decodeBase64Url(emailDetails.payload.body.data);
+      try {
+        return GmailService.decodeBase64Url(message.payload.body.data);
+      } catch (error) {
+        console.error('Failed to decode main payload:', error);
+      }
     }
 
-    // Then check parts
-    if (emailDetails.payload.parts) {
-      const textBody = findTextPart(emailDetails.payload.parts);
+    // Check parts for text content
+    if (message.payload?.parts) {
+      const textBody = findTextPart(message.payload.parts);
       if (textBody) {
         return textBody;
       }
     }
 
-    // Fallback to snippet if no text body found
-    return emailDetails.snippet || '';
+    // Fallback to snippet
+    return message.snippet || '';
+  }
+
+  /**
+   * Truncate text to specified word count
+   * @param text - Text to truncate
+   * @param maxWords - Maximum number of words
+   * @returns Object with truncated text, word count, and truncation status
+   */
+  private truncateText(
+    text: string,
+    maxWords: number
+  ): {
+    truncatedText: string;
+    wordCount: number;
+    isTruncated: boolean;
+  } {
+    if (!text) {
+      return {
+        truncatedText: '',
+        wordCount: 0,
+        isTruncated: false,
+      };
+    }
+
+    // Split text into words (simple whitespace-based splitting)
+    const words = text.trim().split(/\s+/);
+    const originalWordCount = words.length;
+
+    if (originalWordCount <= maxWords) {
+      return {
+        truncatedText: text,
+        wordCount: originalWordCount,
+        isTruncated: false,
+      };
+    }
+
+    // Truncate to maxWords and add ellipsis
+    const truncatedWords = words.slice(0, maxWords);
+    const truncatedText = truncatedWords.join(' ') + '...';
+
+    return {
+      truncatedText,
+      wordCount: originalWordCount,
+      isTruncated: true,
+    };
   }
 }
 
