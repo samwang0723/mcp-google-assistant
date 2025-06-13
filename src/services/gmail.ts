@@ -260,7 +260,7 @@ export class GmailService {
   /**
    * Search emails with a specific query (inbox only by default)
    * @param query - Gmail search query (e.g., "from:example@gmail.com", "is:unread")
-   * @param maxResults - Maximum number of results (default: 10, max: 500)
+   * @param maxResults - Maximum number of results (default: 10, max: 20)
    * @param inboxOnly - Whether to search only in inbox (default: true)
    * @returns Promise containing search results
    */

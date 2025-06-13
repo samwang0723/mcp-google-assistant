@@ -82,7 +82,7 @@ class McpServerApp {
           .number()
           .min(1)
           .max(500)
-          .optional()
+          .default(10)
           .describe(
             'Maximum number of emails to return (default: 10, max: 500)'
           ),
@@ -183,10 +183,10 @@ class McpServerApp {
         maxResults: z
           .number()
           .min(1)
-          .max(500)
-          .optional()
+          .max(20)
+          .default(10)
           .describe(
-            'Maximum number of emails to return (default: 10, max: 500)'
+            'Maximum number of emails to return (default: 10, max: 20)'
           ),
       },
       async ({ query, maxResults }) => {
