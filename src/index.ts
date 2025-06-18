@@ -83,16 +83,16 @@ class McpServerApp {
 
     // Register Gmail list emails tool
     server.tool(
-      'gmail-list-emails',
+      'gmail_list_emails',
       'Get a list of emails from Gmail with optional filtering and details',
       {
         maxResults: z
           .number()
           .min(1)
-          .max(500)
+          .max(30)
           .default(10)
           .describe(
-            'Maximum number of emails to return (default: 10, max: 500)'
+            'Maximum number of emails to return (default: 10, max: 30)'
           ),
         pageToken: z
           .string()
@@ -110,7 +110,7 @@ class McpServerApp {
           .describe('Array of label IDs to filter by'),
         includeSpamTrash: z
           .boolean()
-          .optional()
+          .default(false)
           .describe(
             'Whether to include spam and trash emails (default: false)'
           ),
@@ -147,7 +147,7 @@ class McpServerApp {
 
     // Register Gmail get email details tool
     server.tool(
-      'gmail-get-single-email',
+      'gmail_get_details',
       'Get detailed information about a specific email',
       {
         messageId: z
@@ -185,7 +185,7 @@ class McpServerApp {
 
     // Register Gmail search emails tool
     server.tool(
-      'gmail-search-emails',
+      'gmail_search_emails',
       'Search emails using Gmail query syntax',
       {
         query: z
