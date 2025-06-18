@@ -14,7 +14,11 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
 import config from '@config/index';
-import GmailService, { GmailServiceError } from '@services/gmail';
+import GmailService, {
+  GmailServiceError,
+  GmailServiceOptions,
+} from '@services/gmail';
+import logger from './utils/logger';
 
 // Load environment variables
 dotenv.config();
@@ -63,7 +67,11 @@ function createGmailServiceFromSession(sessionId: string): GmailService {
     );
   }
 
-  return new GmailService(token);
+  const options: GmailServiceOptions = {
+    skipSslVerification: true,
+  };
+
+  return GmailService.fromBearerToken(token, options);
 }
 
 class McpServerApp {
@@ -76,7 +84,7 @@ class McpServerApp {
     // Register Gmail list emails tool
     server.tool(
       'gmail-list-emails',
-      'Get a list of emails from Gmail with optional filtering',
+      'Get a list of emails from Gmail with optional filtering and details',
       {
         maxResults: z
           .number()
@@ -106,6 +114,12 @@ class McpServerApp {
           .describe(
             'Whether to include spam and trash emails (default: false)'
           ),
+        fetchDetails: z
+          .boolean()
+          .default(true)
+          .describe(
+            'If true, fetches full details for each email in the list using a single batch request.'
+          ),
       },
       async options => {
         try {
@@ -133,7 +147,7 @@ class McpServerApp {
 
     // Register Gmail get email details tool
     server.tool(
-      'gmail-get-email',
+      'gmail-get-single-email',
       'Get detailed information about a specific email',
       {
         messageId: z
@@ -328,33 +342,33 @@ class McpServerApp {
 
     // Start the server
     app.listen(config.server.port, '0.0.0.0', () => {
-      console.log(
+      logger.info(
         `MCP Google Assistant Server running on http://0.0.0.0:${config.server.port}`
       );
-      console.log(
+      logger.info(
         `Health check available at http://0.0.0.0:${config.server.port}/health`
       );
-      console.log(
+      logger.info(
         `MCP endpoint available at http://0.0.0.0:${config.server.port}/mcp`
       );
-      console.log('');
-      console.log('📧 Gmail MCP Server ready!');
-      console.log('');
-      console.log('Available tools:');
-      console.log(
+      logger.info('');
+      logger.info('📧 Gmail MCP Server ready!');
+      logger.info('');
+      logger.info('Available tools:');
+      logger.info(
         '  - gmail-list-emails: Get a list of emails with optional filtering'
       );
-      console.log(
+      logger.info(
         '  - gmail-get-email: Get detailed information about a specific email'
       );
-      console.log(
+      logger.info(
         '  - gmail-search-emails: Search emails using Gmail query syntax'
       );
-      console.log('');
-      console.log(
+      logger.info('');
+      logger.info(
         'Authentication: Include "Authorization: Bearer <access_token>" header'
       );
-      console.log(
+      logger.info(
         'Access token should be a valid Google OAuth2 access token with Gmail API scope'
       );
     });
