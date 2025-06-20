@@ -224,7 +224,7 @@ export class GmailService {
           `--${boundary}\r\n` +
           `Content-Type: application/http\r\n` +
           `Content-ID: item-${index}\r\n\r\n` +
-          `GET /gmail/v1/users/me/messages/${id}?format=full\r\n`;
+          `GET /gmail/v1/users/me/messages/${id}?format=metadata\r\n`;
         return getRequest;
       })
       .join('');
