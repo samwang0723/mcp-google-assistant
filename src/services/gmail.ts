@@ -231,110 +231,134 @@ export class GmailService {
 
     const finalRequestBody = `${batchRequestBody}--${boundary}--`;
 
-    try {
-      const requestConfig: GaxiosOptions = {
-        url: 'https://www.googleapis.com/batch/gmail/v1',
-        method: 'POST',
-        headers: {
-          'Content-Type': `multipart/mixed; boundary=${boundary}`,
-        },
-        body: finalRequestBody,
-      };
+    const maxRetries = 3;
+    const initialDelay = 1000;
+    let attempt = 0;
 
-      if (this.skipSslVerification) {
-        requestConfig.agent = new https.Agent({
-          rejectUnauthorized: false,
-        });
-      }
-
-      const response: GaxiosResponse<any> =
-        await this.oauth2Client.request(requestConfig);
-
-      let responseText: string;
-      if (typeof response.data === 'string') {
-        responseText = response.data;
-      } else if (response.data && typeof response.data.text === 'function') {
-        // Handle Blob-like response data
-        responseText = await response.data.text();
-      } else {
-        // Handle cases where response.data is neither string nor Blob-like,
-        // which is likely a JSON error object from the API.
-        const fakeError = {
-          response: {
-            status: response.status,
-            data: response.data,
+    while (attempt <= maxRetries) {
+      try {
+        const requestConfig: GaxiosOptions = {
+          url: 'https://www.googleapis.com/batch/gmail/v1',
+          method: 'POST',
+          headers: {
+            'Content-Type': `multipart/mixed; boundary=${boundary}`,
           },
+          body: finalRequestBody,
         };
-        return this.handleGmailError(
-          fakeError,
-          'Failed to batch fetch email details: Unexpected response data type'
-        );
-      }
 
-      // The boundary in the response can be different from the one in the request.
-      // We must parse it from the 'Content-Type' header.
-      const contentType =
-        response.headers.get('content-type') ||
-        response.headers.get('Content-Type');
-      if (!contentType || !contentType.includes('boundary=')) {
-        // Not a valid multipart response
-        return this.handleGmailError(
-          { response },
-          'Invalid batch response: Missing or malformed Content-Type header'
-        );
-      }
-
-      const boundaryMatch = contentType.match(/boundary="?([^"]+)"?/);
-      if (!boundaryMatch || !boundaryMatch[1]) {
-        return this.handleGmailError(
-          { response },
-          'Invalid batch response: Could not find boundary in Content-Type header'
-        );
-      }
-      const responseBoundary = boundaryMatch[1];
-
-      // Response is a multipart string, we need to parse it
-      const parts = responseText
-        .split(`--${responseBoundary}`)
-        .map(part => part.trim());
-      const emailDetailsList: EmailDetails[] = [];
-
-      for (const part of parts) {
-        if (part === '' || part === '--') {
-          continue;
+        if (this.skipSslVerification) {
+          requestConfig.agent = new https.Agent({
+            rejectUnauthorized: false,
+          });
         }
 
-        // The JSON payload starts at the first '{'.
-        const jsonStartIndex = part.indexOf('{');
-        if (jsonStartIndex === -1) {
-          continue; // Not a valid JSON response part.
+        const response: GaxiosResponse<any> =
+          await this.oauth2Client.request(requestConfig);
+
+        let responseText: string;
+        if (typeof response.data === 'string') {
+          responseText = response.data;
+        } else if (response.data && typeof response.data.text === 'function') {
+          // Handle Blob-like response data
+          responseText = await response.data.text();
+        } else {
+          // Handle cases where response.data is neither string nor Blob-like,
+          // which is likely a JSON error object from the API.
+          const fakeError = {
+            response: {
+              status: response.status,
+              data: response.data,
+            },
+          };
+          return this.handleGmailError(
+            fakeError,
+            'Failed to batch fetch email details: Unexpected response data type'
+          );
         }
 
-        // Extract the JSON string from the part.
-        const jsonString = part.substring(jsonStartIndex);
+        // The boundary in the response can be different from the one in the request.
+        // We must parse it from the 'Content-Type' header.
+        const contentType =
+          response.headers.get('content-type') ||
+          response.headers.get('Content-Type');
+        if (!contentType || !contentType.includes('boundary=')) {
+          // Not a valid multipart response
+          return this.handleGmailError(
+            { response },
+            'Invalid batch response: Missing or malformed Content-Type header'
+          );
+        }
 
-        try {
-          const parsedJson = JSON.parse(jsonString);
-          if (parsedJson.error) {
-            console.error('Error in batch response part:', parsedJson.error);
+        const boundaryMatch = contentType.match(/boundary="?([^"]+)"?/);
+        if (!boundaryMatch || !boundaryMatch[1]) {
+          return this.handleGmailError(
+            { response },
+            'Invalid batch response: Could not find boundary in Content-Type header'
+          );
+        }
+        const responseBoundary = boundaryMatch[1];
+
+        // Response is a multipart string, we need to parse it
+        const parts = responseText
+          .split(`--${responseBoundary}`)
+          .map(part => part.trim());
+        const emailDetailsList: EmailDetails[] = [];
+
+        for (const part of parts) {
+          if (part === '' || part === '--') {
             continue;
           }
 
-          const message: gmail_v1.Schema$Message = parsedJson;
-          const emailDetails = this.parseMessageToEmailDetails(message);
-          emailDetailsList.push(emailDetails);
-        } catch (e: any) {
-          console.error('Failed to parse batch response part:', e);
-        }
-      }
+          // The JSON payload starts at the first '{'.
+          const jsonStartIndex = part.indexOf('{');
+          if (jsonStartIndex === -1) {
+            continue; // Not a valid JSON response part.
+          }
 
-      return emailDetailsList;
-    } catch (error: any) {
-      return this.handleGmailError(
-        error,
-        'Failed to batch fetch email details'
-      );
+          // Extract the JSON string from the part.
+          const jsonString = part.substring(jsonStartIndex);
+
+          try {
+            const parsedJson = JSON.parse(jsonString);
+            if (parsedJson.error) {
+              console.error('Error in batch response part:', parsedJson.error);
+              continue;
+            }
+
+            const message: gmail_v1.Schema$Message = parsedJson;
+            const emailDetails = this.parseMessageToEmailDetails(message);
+            emailDetailsList.push(emailDetails);
+          } catch (e: any) {
+            console.error('Failed to parse batch response part:', e);
+          }
+        }
+
+        return emailDetailsList;
+      } catch (error: any) {
+        if (error?.response?.status === 429 && attempt < maxRetries) {
+          const delay =
+            initialDelay * Math.pow(2, attempt) + Math.random() * 1000;
+          logger.warn(
+            `Rate limit exceeded. Retrying in ${Math.round(
+              delay / 1000
+            )}s... (Attempt ${attempt + 1}/${maxRetries})`
+          );
+          await new Promise(resolve => setTimeout(resolve, delay));
+          attempt++;
+          continue;
+        }
+
+        return this.handleGmailError(
+          error,
+          'Failed to batch fetch email details'
+        );
+      }
     }
+    // Fallback error if all retries fail
+    throw new GmailServiceError(
+      'Failed to batch fetch email details after multiple retries due to rate limiting.',
+      'RATE_LIMIT_EXCEEDED'
+    );
   }
 
   /**
