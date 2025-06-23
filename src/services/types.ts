@@ -39,3 +39,61 @@ export interface EmailDetails {
   textBody: string; // Extracted and potentially truncated text content
   headers: EmailHeader[]; // Filtered headers based on includeHeaders option
 }
+
+// Types and interfaces for Google Calendar
+
+export interface CalendarListEntry {
+  id: string;
+  summary: string;
+  description?: string;
+  timeZone?: string;
+  primary?: boolean;
+}
+
+export interface EventListOptions {
+  calendarId: string; // 'primary' can be used for the primary calendar
+  maxResults?: number;
+  pageToken?: string;
+  timeMin?: string; // ISO 8601 date string, e.g. "2023-12-18T00:00:00Z"
+  timeMax?: string; // ISO 8601 date string, e.g. "2023-12-25T23:59:59Z"
+  query?: string;
+  singleEvents?: boolean; // Expand recurring events, default true
+  orderBy?: 'startTime' | 'updated';
+}
+
+export interface EventDateTime {
+  dateTime?: string; // RFC3339, e.g., '2023-12-25T10:00:00-07:00'
+  date?: string; // ISO 8601, e.g., '2023-12-25' for all-day events
+  timeZone?: string;
+}
+
+export interface EventAttendee {
+  email: string;
+  displayName?: string;
+  responseStatus: 'needsAction' | 'declined' | 'tentative' | 'accepted';
+}
+
+export interface CalendarEvent {
+  id: string;
+  summary: string;
+  description?: string;
+  location?: string;
+  start: EventDateTime;
+  end: EventDateTime;
+  attendees?: EventAttendee[];
+  organizer?: { email?: string; displayName?: string };
+  hangoutLink?: string;
+  htmlLink: string;
+  status: 'confirmed' | 'tentative' | 'cancelled';
+}
+
+export interface CreateEventOptions {
+  calendarId?: string; // Defaults to 'primary'
+  summary: string;
+  description?: string;
+  location?: string;
+  start: EventDateTime;
+  end: EventDateTime;
+  attendees?: string[]; // Array of attendee emails
+  sendNotifications?: boolean;
+}

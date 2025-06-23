@@ -18,6 +18,7 @@ import GmailService, {
   GmailServiceError,
   GmailServiceOptions,
 } from '@services/gmail';
+import GCalendarService, { GCalendarServiceError } from '@services/gcalendar';
 import logger from './utils/logger';
 
 // Load environment variables
@@ -74,11 +75,46 @@ function createGmailServiceFromSession(sessionId: string): GmailService {
   return GmailService.fromBearerToken(token, options);
 }
 
+// Helper function to create GCalendar service from current session headers
+function createGCalendarServiceFromSession(
+  sessionId: string
+): GCalendarService {
+  const headers = sessionHeaders[sessionId];
+
+  if (!headers) {
+    throw new GCalendarServiceError(
+      'No authentication context found. Please ensure the request includes proper session headers.',
+      'NO_SESSION_CONTEXT'
+    );
+  }
+
+  const token = extractBearerToken(headers);
+
+  if (!token) {
+    throw new GCalendarServiceError(
+      'Missing or invalid Authorization header. Expected format: "Authorization: Bearer <access_token>"',
+      'MISSING_AUTHORIZATION'
+    );
+  }
+
+  const options: GmailServiceOptions = {
+    skipSslVerification: true,
+  };
+
+  return GCalendarService.fromBearerToken(token, options);
+}
+
 class McpServerApp {
   private createServer(sessionId: string): McpServer {
     const server = new McpServer({
       name: 'mcp-google-assistant-server',
       version: '1.0.0',
+    });
+
+    const EventDateTimeSchema = z.object({
+      date: z.string().optional(),
+      dateTime: z.string().optional(),
+      timeZone: z.string().optional(),
     });
 
     // Register Gmail list emails tool
@@ -230,6 +266,183 @@ class McpServerApp {
       }
     );
 
+    // Register GCalendar list calendars tool
+    server.tool(
+      'gcalendar_list_calendars',
+      'Get a list of all calendars in the user calendar list',
+      {},
+      async () => {
+        try {
+          const gcalService = createGCalendarServiceFromSession(sessionId);
+          const calendars = await gcalService.listCalendars();
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(calendars, null, 2),
+              } as TextContent,
+            ],
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof GCalendarServiceError
+              ? `GCalendar API Error [${error.code}]: ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          throw new Error(`Error listing calendars: ${errorMessage}`);
+        }
+      }
+    );
+
+    // Register GCalendar list events tool
+    server.tool(
+      'gcalendar_list_events',
+      'Get a list of events from a specified calendar',
+      {
+        calendarId: z
+          .string()
+          .default('primary')
+          .describe(
+            `Calendar identifier. Use 'primary' for the primary calendar.`
+          ),
+        maxResults: z
+          .number()
+          .min(1)
+          .max(50)
+          .default(20)
+          .describe(`Maximum number of events to return.`),
+        timeMin: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(
+            `Start of time range (ISO 8601). If not set, will list future events.`
+          ),
+        timeMax: z
+          .string()
+          .datetime()
+          .optional()
+          .describe(`End of time range (ISO 8601).`),
+        query: z.string().optional().describe(`Text search query.`),
+      },
+      async options => {
+        try {
+          const gcalService = createGCalendarServiceFromSession(sessionId);
+          const events = await gcalService.listEvents(options);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(events, null, 2),
+              } as TextContent,
+            ],
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof GCalendarServiceError
+              ? `GCalendar API Error [${error.code}]: ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          throw new Error(`Error listing events: ${errorMessage}`);
+        }
+      }
+    );
+
+    // Register GCalendar create event tool
+    server.tool(
+      'gcalendar_create_event',
+      'Create a new event in a calendar',
+      {
+        calendarId: z
+          .string()
+          .default('primary')
+          .describe(
+            `Calendar identifier. Use 'primary' for the primary calendar.`
+          ),
+        summary: z.string().describe(`The summary or title of the event.`),
+        description: z
+          .string()
+          .optional()
+          .describe(`The description of the event.`),
+        location: z.string().optional().describe(`The location of the event.`),
+        start: EventDateTimeSchema.describe(
+          `The start time of the event. e.g. { "dateTime": "2024-07-20T15:00:00-07:00", "timeZone": "America/Los_Angeles" }`
+        ),
+        end: EventDateTimeSchema.describe(
+          `The end time of the event. e.g. { "dateTime": "2024-07-20T16:00:00-07:00", "timeZone": "America/Los_Angeles" }`
+        ),
+        attendees: z
+          .array(z.string().email())
+          .optional()
+          .describe(`A list of attendee email addresses.`),
+        sendNotifications: z
+          .boolean()
+          .default(true)
+          .describe(
+            `Whether to send notifications about the creation of the new event.`
+          ),
+      },
+      async options => {
+        try {
+          const gcalService = createGCalendarServiceFromSession(sessionId);
+          const newEvent = await gcalService.createEvent(options);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(newEvent, null, 2),
+              } as TextContent,
+            ],
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof GCalendarServiceError
+              ? `GCalendar API Error [${error.code}]: ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          throw new Error(`Error creating event: ${errorMessage}`);
+        }
+      }
+    );
+
+    // Register GCalendar decline event tool
+    server.tool(
+      'gcalendar_decline_event',
+      'Decline an invitation to a calendar event.',
+      {
+        calendarId: z
+          .string()
+          .default('primary')
+          .describe(`Calendar identifier. Defaults to 'primary'.`),
+        eventId: z.string().describe(`The ID of the event to decline.`),
+      },
+      async options => {
+        try {
+          const gcalService = createGCalendarServiceFromSession(sessionId);
+          const updatedEvent = await gcalService.declineEvent(options);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(updatedEvent, null, 2),
+              } as TextContent,
+            ],
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof GCalendarServiceError
+              ? `GCalendar API Error [${error.code}]: ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          throw new Error(`Error declining event: ${errorMessage}`);
+        }
+      }
+    );
+
     return server;
   }
 
@@ -363,6 +576,16 @@ class McpServerApp {
       );
       logger.info(
         '  - gmail-search-emails: Search emails using Gmail query syntax'
+      );
+      logger.info('  - gcalendar-list-calendars: Get a list of all calendars');
+      logger.info(
+        '  - gcalendar-list-events: Get a list of events from a calendar'
+      );
+      logger.info(
+        '  - gcalendar-create-event: Create a new event in a calendar'
+      );
+      logger.info(
+        '  - gcalendar-decline-event: Decline an invitation to an event'
       );
       logger.info('');
       logger.info(
