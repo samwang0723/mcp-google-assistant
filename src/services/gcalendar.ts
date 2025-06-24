@@ -137,6 +137,7 @@ export class GCalendarService {
   async listCalendars(): Promise<CalendarListEntry[]> {
     try {
       const response = await this.calendar.calendarList.list(
+        {},
         this.getRequestOptions()
       );
       if (!response.data.items) {
@@ -159,8 +160,7 @@ export class GCalendarService {
   ): Promise<{ events: CalendarEvent[]; nextPageToken?: string }> {
     try {
       EventListOptionsSchema.parse(options);
-      const requestOptions = {
-        ...this.getRequestOptions(),
+      const requestParams = {
         calendarId: options.calendarId,
         maxResults: options.maxResults,
         pageToken: options.pageToken,
@@ -171,7 +171,10 @@ export class GCalendarService {
         orderBy: options.orderBy ?? 'startTime',
       };
 
-      const response = await this.calendar.events.list(requestOptions);
+      const response = await this.calendar.events.list(
+        requestParams,
+        this.getRequestOptions()
+      );
 
       if (!response.data.items) {
         return { events: [] };
@@ -202,14 +205,16 @@ export class GCalendarService {
         attendees: options.attendees?.map(email => ({ email })),
       };
 
-      const requestOptions = {
-        ...this.getRequestOptions(),
+      const requestParams = {
         calendarId: options.calendarId || 'primary',
         requestBody,
         sendNotifications: options.sendNotifications,
       };
 
-      const response = await this.calendar.events.insert(requestOptions);
+      const response = await this.calendar.events.insert(
+        requestParams,
+        this.getRequestOptions()
+      );
       const item = response.data;
 
       const newEvent: CalendarEvent = this.parseCalendarEvent(item);
@@ -240,11 +245,13 @@ export class GCalendarService {
       const userEmail = tokenInfo.email;
 
       // Get the current event to preserve other attendees' statuses
-      const { data: event } = await this.calendar.events.get({
-        calendarId,
-        eventId,
-        ...this.getRequestOptions(),
-      });
+      const { data: event } = await this.calendar.events.get(
+        {
+          calendarId,
+          eventId,
+        },
+        this.getRequestOptions()
+      );
 
       const attendees = event.attendees || [];
       let found = false;
@@ -262,15 +269,17 @@ export class GCalendarService {
       }
 
       // Patch the event with the updated attendee information
-      const response = await this.calendar.events.patch({
-        calendarId,
-        eventId,
-        requestBody: {
-          attendees: updatedAttendees,
+      const response = await this.calendar.events.patch(
+        {
+          calendarId,
+          eventId,
+          requestBody: {
+            attendees: updatedAttendees,
+          },
+          sendNotifications: true, // Notify the organizer
         },
-        sendNotifications: true, // Notify the organizer
-        ...this.getRequestOptions(),
-      });
+        this.getRequestOptions()
+      );
 
       return this.parseCalendarEvent(response.data);
     } catch (error: any) {
