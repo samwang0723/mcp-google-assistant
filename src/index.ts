@@ -314,14 +314,12 @@ class McpServerApp {
           .describe(`Maximum number of events to return.`),
         timeMin: z
           .string()
-          .datetime()
           .optional()
           .describe(
             `Start of time range (ISO 8601). If not set, will list future events.`
           ),
         timeMax: z
           .string()
-          .datetime()
           .optional()
           .describe(`End of time range (ISO 8601).`),
         query: z.string().optional().describe(`Text search query.`),
