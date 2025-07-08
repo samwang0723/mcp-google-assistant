@@ -219,6 +219,59 @@ class McpServerApp {
       }
     );
 
+    // Register tool for converting date-time strings
+    server.tool(
+      'datetime_converter',
+      'Convert a date-time string to a different format or timezone',
+      {
+        datetime: z
+          .string()
+          .describe(
+            'The date-time string to convert (e.g., "2024-07-20T15:00:00-07:00", "July 20, 2024 3:00 PM PST")'
+          ),
+        format: z
+          .enum(['iso', 'utc', 'unix'])
+          .default('iso')
+          .optional()
+          .describe(
+            'The target format: "iso" (default ISO 8601), "utc" (alias for iso), or "unix" (timestamp in seconds).'
+          ),
+      },
+      async ({ datetime, format }) => {
+        try {
+          const date = new Date(datetime);
+          if (isNaN(date.getTime())) {
+            throw new Error('Invalid date-time string provided.');
+          }
+
+          let result: string | number;
+          switch (format) {
+            case 'unix':
+              result = Math.floor(date.getTime() / 1000);
+              break;
+            case 'iso':
+            case 'utc':
+            default:
+              result = date.toISOString();
+              break;
+          }
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: String(result),
+              } as TextContent,
+            ],
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          throw new Error(`Error converting date-time: ${errorMessage}`);
+        }
+      }
+    );
+
     // Register Gmail search emails tool
     server.tool(
       'gmail_search_emails',
@@ -315,13 +368,17 @@ class McpServerApp {
         timeMin: z
           .string()
           .optional()
+          .transform(val => (val ? new Date(val).toISOString() : val))
           .describe(
-            `Start of time range (ISO 8601). If not set, will list future events.`
+            `Start of time range (e.g., "2025-07-07T00:00:00+08:00"). It will be automatically converted to UTC. If not set, will list future events.`
           ),
         timeMax: z
           .string()
           .optional()
-          .describe(`End of time range (ISO 8601).`),
+          .transform(val => (val ? new Date(val).toISOString() : val))
+          .describe(
+            `End of time range (e.g., "2025-07-07T00:00:00+08:00"). It will be automatically converted to UTC.`
+          ),
         query: z.string().optional().describe(`Text search query.`),
       },
       async options => {
@@ -574,6 +631,9 @@ class McpServerApp {
       );
       logger.info(
         '  - gmail-search-emails: Search emails using Gmail query syntax'
+      );
+      logger.info(
+        '  - datetime_converter: Convert date-time strings to different formats'
       );
       logger.info('  - gcalendar-list-calendars: Get a list of all calendars');
       logger.info(
