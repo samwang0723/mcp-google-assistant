@@ -194,6 +194,12 @@ class McpServerApp {
           .enum(['minimal', 'full', 'raw', 'metadata'])
           .optional()
           .describe('The format of the message (default: full)'),
+        maxWords: z
+          .number()
+          .min(300)
+          .max(3000)
+          .default(1000)
+          .describe('The maximum number of words to return (default: 300)'),
       },
       async options => {
         try {
