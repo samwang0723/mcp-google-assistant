@@ -42,7 +42,7 @@ EXPOSE 3003
 
 # Set environment variables
 ENV NODE_ENV=production
-ENV SKIP_SSL_VERIFICATION=true
+# ENV SKIP_SSL_VERIFICATION=true
 
 # Start the application
 CMD ["node", "dist/index.js"] 

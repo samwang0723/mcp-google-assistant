@@ -1,22 +1,34 @@
 # MCP Google Assistant
 
-AI-powered Google Gmail/Calendar MCP server that provides Gmail access through Bearer token authentication.
+AI-powered Google Gmail/Calendar MCP server that provides Gmail and Google Calendar access through Bearer token authentication.
 
 ## Features
 
 - 📧 **Gmail Integration**: Read email lists and get individual email details
 - 🔍 **Email Search**: Search emails using Gmail query syntax
+- 📅 **Google Calendar Integration**: List calendars, events, create events, and manage invitations
+- 🕐 **DateTime Utilities**: Convert datetime strings between different formats
 - 🔐 **Bearer Token Auth**: Secure authentication using Google OAuth2 access tokens
 - 🚀 **MCP Protocol**: Compatible with Model Context Protocol for AI integration
 
-## Gmail Functions
+## Available MCP Tools
 
-### Available Tools
+### Gmail Tools
 
-1. **`gmail-list-emails`** - Get a list of emails with optional filtering
-2. **`gmail-get-email`** - Get detailed information about a specific email
-3. **`gmail-search-emails`** - Search emails using Gmail query syntax
-4. **`gmail-get-unread`** - Get unread emails
+1. **`gmail_list_emails`** - Get a list of emails with optional filtering and batch detail fetching
+2. **`gmail_get_details`** - Get detailed information about a specific email with configurable word limits
+3. **`gmail_search_emails`** - Search emails using Gmail query syntax
+
+### Google Calendar Tools
+
+4. **`gcalendar_list_calendars`** - Get a list of all calendars in the user's calendar list
+5. **`gcalendar_list_events`** - Get a list of events from a specified calendar with time range filtering
+6. **`gcalendar_create_event`** - Create a new event in a calendar with attendees and notifications
+7. **`gcalendar_decline_event`** - Decline an invitation to a calendar event
+
+### Utility Tools
+
+8. **`datetime_converter`** - Convert datetime strings to different formats (ISO, UTC, Unix timestamp)
 
 ### Authentication
 
@@ -28,9 +40,15 @@ Authorization: Bearer <your-google-oauth2-access-token>
 
 ### Required Google API Scopes
 
-Your access token must include the following Gmail API scopes:
+Your access token must include the following Google API scopes:
 
+**Gmail API Scopes:**
 - `https://www.googleapis.com/auth/gmail.readonly` - Read access to Gmail
+
+**Google Calendar API Scopes:**
+- `https://www.googleapis.com/auth/calendar` - Full access to Google Calendar
+- `https://www.googleapis.com/auth/calendar.readonly` - Read-only access to Google Calendar (minimum required)
+- `https://www.googleapis.com/auth/calendar.events` - Access to events (required for creating/modifying events)
 
 ## Installation
 
@@ -73,48 +91,52 @@ LOG_LEVEL=info
 
 ## Usage Examples
 
-### 1. Get Email List
+### Gmail Tools
+
+#### 1. List Emails with Details
 
 ```json
 {
   "jsonrpc": "2.0",
   "method": "tools/call",
   "params": {
-    "name": "gmail-list-emails",
+    "name": "gmail_list_emails",
     "arguments": {
       "maxResults": 10,
-      "query": "is:unread"
+      "query": "is:unread",
+      "fetchDetails": true
     }
   },
   "id": 1
 }
 ```
 
-### 2. Get Email Details
+#### 2. Get Email Details
 
 ```json
 {
   "jsonrpc": "2.0",
   "method": "tools/call",
   "params": {
-    "name": "gmail-get-email",
+    "name": "gmail_get_details",
     "arguments": {
       "messageId": "1234567890abcdef",
-      "format": "full"
+      "format": "full",
+      "maxWords": 500
     }
   },
   "id": 2
 }
 ```
 
-### 3. Search Emails
+#### 3. Search Emails
 
 ```json
 {
   "jsonrpc": "2.0",
   "method": "tools/call",
   "params": {
-    "name": "gmail-search-emails",
+    "name": "gmail_search_emails",
     "arguments": {
       "query": "from:example@gmail.com subject:important",
       "maxResults": 5
@@ -124,19 +146,86 @@ LOG_LEVEL=info
 }
 ```
 
-### 4. Get Unread Emails
+### Google Calendar Tools
+
+#### 4. List Calendars
 
 ```json
 {
   "jsonrpc": "2.0",
   "method": "tools/call",
   "params": {
-    "name": "gmail-get-unread",
-    "arguments": {
-      "maxResults": 20
-    }
+    "name": "gcalendar_list_calendars",
+    "arguments": {}
   },
   "id": 4
+}
+```
+
+#### 5. List Events
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "gcalendar_list_events",
+    "arguments": {
+      "calendarId": "primary",
+      "maxResults": 20,
+      "timeMin": "2025-07-31T00:00:00Z",
+      "timeMax": "2025-08-31T23:59:59Z"
+    }
+  },
+  "id": 5
+}
+```
+
+#### 6. Create Event
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "gcalendar_create_event",
+    "arguments": {
+      "calendarId": "primary",
+      "summary": "Team Meeting",
+      "description": "Weekly team sync meeting",
+      "location": "Conference Room A",
+      "start": {
+        "dateTime": "2025-08-01T15:00:00-07:00",
+        "timeZone": "America/Los_Angeles"
+      },
+      "end": {
+        "dateTime": "2025-08-01T16:00:00-07:00",
+        "timeZone": "America/Los_Angeles"
+      },
+      "attendees": ["colleague@example.com"],
+      "sendNotifications": true
+    }
+  },
+  "id": 6
+}
+```
+
+### Utility Tools
+
+#### 7. Convert DateTime
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "datetime_converter",
+    "arguments": {
+      "datetime": "July 31, 2025 3:00 PM PST",
+      "format": "iso"
+    }
+  },
+  "id": 7
 }
 ```
 
@@ -170,20 +259,28 @@ The server provides detailed error messages for common scenarios:
 
 ### Scripts
 
-- `npm run dev` - Start development server with hot reload
-- `npm run build` - Build TypeScript to JavaScript
-- `npm run lint` - Run ESLint
+- `npm run dev` - Start development server with hot reload using tsx
+- `npm run build` - Build TypeScript to JavaScript (outputs to dist/)
+- `npm start` - Start production server from built JavaScript
+- `npm run lint` - Run ESLint on TypeScript files
 - `npm run lint:fix` - Fix ESLint issues automatically
+- `npm run quality` - Run comprehensive quality checks (type-check + lint + format:check)
+- `npm test` - Run Jest tests
 
 ### Project Structure
 
 ```
 src/
-├── config/          # Configuration management
-├── services/        # Gmail service implementation
-│   └── gmail.ts     # Main Gmail API integration
-├── utils/          # Utility functions
-└── index.ts        # MCP server setup
+├── config/
+│   └── index.ts         # Server configuration
+├── services/
+│   ├── gmail.ts         # Gmail API integration with batch operations
+│   ├── gcalendar.ts     # Google Calendar API integration
+│   └── types.ts         # TypeScript type definitions
+├── utils/
+│   └── logger.ts        # Winston logger configuration
+├── index.ts             # MCP server setup and tool definitions
+└── register-paths.ts    # TypeScript path aliases runtime registration
 ```
 
 ## License
