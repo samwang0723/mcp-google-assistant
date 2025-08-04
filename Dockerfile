@@ -34,12 +34,6 @@ COPY --from=builder /app/dist ./dist
 # Copy configuration files needed for runtime path resolution
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
-# Copy .env file if it exists
-COPY --from=builder /app/.env ./.env
-
-# Expose the port
-EXPOSE 3003
-
 # Set environment variables
 ENV NODE_ENV=production
 # ENV SKIP_SSL_VERIFICATION=true
