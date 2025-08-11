@@ -19,7 +19,7 @@
   "author": "Sam Wang",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.0",
+    "@modelcontextprotocol/sdk": "^1.17.2",
     "dotenv": "^16.3.1",
     "express": "^5.1.0",
     "googleapis": "^154.1.0",
